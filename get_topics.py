@@ -8,6 +8,7 @@ from stop_words import get_stop_words
 from IPython import embed
 from nltk.stem import *
 import progressbar
+from scipy.sparse import lil_matrix
 
 progress = progressbar.ProgressBar()
 
@@ -19,28 +20,42 @@ def load_reviews(filename, field):
     stemmer = PorterStemmer()
 
 
+    # Given a list of words, return a map of word->count
+    def word_count(words):
+        result = {}
+        for word in words:
+            if word not in result:
+                result[word] = 0
+            result[word] += 1
+        return result 
+
+
     def process(review):
         cleaned = review[field].replace('\r\n', '')
 
+        # tokenize
         tokens = tokenizer.tokenize(cleaned.lower())
 
-        return [stemmer.stem(token) for token in tokens]
+        def remove_stopwords(word):
+            return len(word) >= 3 and word not in get_stop_words('en')
 
-    review_bodies = [process(s) for s in review_json]
+        # filter
+        filtered_tokens = filter(remove_stopwords, tokens)
+
+        # stem
+        stemmed_tokens = map(stemmer.stem, filtered_tokens)
+
+        # Turn into map
+        word_counts = word_count(stemmed_tokens)
+
+        return word_counts
+
+    progress = progressbar.ProgressBar()
+
+    review_bodies = [process(s) for s in progress(review_json)]
 
     return review_bodies
 
-
-# Filter out tokens we deem unworthy
-def filter_tokens(tokens):
-
-    #filter stop words
-    def filter(word):
-        return len(word) >= 3 and word not in get_stop_words('en')
-
-    result = [token for token in tokens if filter(token)]
-
-    return result
 
 
 
@@ -48,23 +63,21 @@ def generate_vocabulary(reviews):
     unique_tokens = set()
 
     for review in progress(reviews):
-        for token in filter_tokens(review):
+        for token in review.keys():
             unique_tokens.add(token)
 
     return tuple(unique_tokens)
 
 
 def build_document_term_matrix(reviews, vocabulary):
-    matrix = []
 
     progress = progressbar.ProgressBar()
 
+    matrix = []#lil_matrix(len(reviews), len(vocabulary))
+
     for review in progress(reviews):
-        row = []
-
-        for word in vocabulary:
-
-            row.append(review.count(word))
+        
+        row = [(review[word] if word in review else 0) for word in vocabulary]
 
         matrix.append(np.array(row))        
 
